@@ -2,9 +2,10 @@ import Phaser from 'phaser';
 import Block from '../objects/Block.js';
 import Pig from '../objects/Pig.js';
 import Bird from '../objects/Bird.js';
+import Slingshot from '../objects/Slingshot.js';
 
 /**
- * GameScene - 游戏场景（方块、猪和小鸟系统测试）
+ * GameScene - 游戏场景（弹弓系统测试）
  */
 export default class GameScene extends Phaser.Scene {
     constructor() {
@@ -25,12 +26,12 @@ export default class GameScene extends Phaser.Scene {
         this.createGround(width, height);
 
         // 标题
-        this.add.text(width / 2, 30, '小鸟、方块 & 猪系统测试', {
+        this.add.text(width / 2, 30, '弹弓系统测试', {
             fontSize: '32px',
             fill: '#000000'
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, 70, '点击小鸟发射 | 空格使用能力 | 点击方块/猪造成伤害', {
+        this.add.text(width / 2, 70, '拖拽弹弓发射小鸟 | 空格使用能力 | 点击方块/猪造成伤害', {
             fontSize: '16px',
             fill: '#666666'
         }).setOrigin(0.5);
@@ -84,17 +85,6 @@ export default class GameScene extends Phaser.Scene {
      * 创建测试方块结构
      */
     createTestStructure() {
-        // 木头塔 - 左侧（带猪）
-        this.add.text(200, 120, '木头塔 + 小猪', {
-            fontSize: '14px',
-            fill: '#000'
-        }).setOrigin(0.5);
-
-        new Block(this, 150, 480, 'wood', Block.SHAPES.VERTICAL);
-        new Block(this, 250, 480, 'wood', Block.SHAPES.VERTICAL);
-        new Block(this, 200, 420, 'wood', Block.SHAPES.HORIZONTAL);
-        new Pig(this, 200, 370, 'small');  // 小猪在顶部
-
         // 石头塔 - 中间（带猪）
         this.add.text(600, 120, '石头塔 + 中猪', {
             fontSize: '14px',
@@ -151,51 +141,126 @@ export default class GameScene extends Phaser.Scene {
     }
 
     /**
-     * 创建小鸟
+     * 创建弹弓和小鸟
      */
     createBirds() {
-        // 在左侧创建三只小鸟
-        this.redBird = new Bird(this, 100, 450, 'red');
-        this.yellowBird = new Bird(this, 150, 450, 'yellow');
-        this.bombBird = new Bird(this, 200, 450, 'bomb');
+        // 使用弹弓配置中的位置（确保在屏幕可见范围内）
+        const slingshotConfig = {
+            x: 200,
+            y: 500,
+            poleHeight: 150
+        };
 
-        // 当前激活的小鸟
-        this.currentBird = this.redBird;
+        // 创建弹弓
+        this.slingshot = new Slingshot(this, slingshotConfig.x, slingshotConfig.y);
 
-        // 提示文字
-        this.add.text(150, 520, '点击小鸟发射 →', {
-            fontSize: '14px',
-            fill: '#ff0000'
+        // 小鸟初始位置：弹弓一半高度
+        const slingshotX = slingshotConfig.x;
+        const slingshotY = slingshotConfig.y - slingshotConfig.poleHeight / 2;
+        this.birdQueue = [
+            new Bird(this, slingshotX, slingshotY, 'red'),      // 红鸟
+            new Bird(this, slingshotX, slingshotY, 'yellow'),   // 黄鸟
+            new Bird(this, slingshotX, slingshotY, 'bomb')      // 炸弹鸟
+        ];
+
+        // 隐藏等待的小鸟（除了第一只），避免重叠
+        for (let i = 1; i < this.birdQueue.length; i++) {
+            this.birdQueue[i].sprite.setVisible(false);
+        }
+
+        // 当前小鸟索引
+        this.currentBirdIndex = 0;
+
+        // 加载状态锁（防止重复加载）
+        this.isLoadingBird = false;
+        this.isProcessingLanding = false;
+
+        // 先显示等待中的小鸟（必须在 loadNextBird 之前）
+        this.displayWaitingBirds();
+
+        // 加载第一只小鸟到弹弓
+        this.loadNextBird();
+
+        // 提示文字（跟随弹弓位置）
+        this.add.text(slingshotConfig.x, slingshotConfig.y + 100, '↑ 拖拽弹弓发射', {
+            fontSize: '18px',
+            fill: '#ff0000',
+            fontStyle: 'bold'
         }).setOrigin(0.5);
+    }
 
-        // 使小鸟精灵可交互（添加交互区域）
-        [this.redBird, this.yellowBird, this.bombBird].forEach(bird => {
-            if (bird.sprite) {
-                bird.sprite.setInteractive();
-                bird.sprite.on('pointerdown', () => {
-                    if (bird.state === Bird.STATES.IDLE) {
-                        console.log('直接点击小鸟，准备发射');
-                        const launchForceX = 15;
-                        const launchForceY = -12;
-                        bird.launch(launchForceX, launchForceY);
-                        this.currentBird = bird;
-                    }
-                });
+    /**
+     * 显示等待中的小鸟
+     */
+    displayWaitingBirds() {
+        // 在左下角显示等待的小鸟
+        const startX = 50;
+        const startY = 550;
+        const spacing = 40;
 
-                // 悬停效果
-                bird.sprite.on('pointerover', () => {
-                    if (bird.state === Bird.STATES.IDLE) {
-                        bird.sprite.setTint(0xffff00);
-                    }
-                });
+        this.waitingBirdSprites = [];
 
-                bird.sprite.on('pointerout', () => {
-                    if (bird.state === Bird.STATES.IDLE) {
-                        bird.sprite.clearTint();
-                    }
-                });
-            }
-        });
+        for (let i = 0; i < this.birdQueue.length; i++) {
+            const bird = this.birdQueue[i];
+            const x = startX + i * spacing;
+            const y = startY;
+
+            // 创建小图标显示
+            const icon = this.add.circle(x, y, 12, this.getBirdColor(bird.type), 0.6);
+            icon.setStrokeStyle(2, 0x000000);
+            this.waitingBirdSprites.push(icon);
+        }
+    }
+
+    /**
+     * 获取小鸟颜色（用于队列图标）
+     */
+    getBirdColor(type) {
+        switch (type) {
+            case 'red': return 0xff0000;
+            case 'yellow': return 0xffff00;
+            case 'bomb': return 0x000000;
+            default: return 0xffffff;
+        }
+    }
+
+    /**
+     * 加载下一只小鸟到弹弓
+     */
+    loadNextBird() {
+        // 防止重复加载
+        if (this.isLoadingBird) {
+            console.log('⚠ 正在加载小鸟，忽略重复调用');
+            return;
+        }
+
+        if (this.currentBirdIndex >= this.birdQueue.length) {
+            console.log('✓ 所有小鸟已用完');
+            // 可以在这里添加关卡结束逻辑
+            return;
+        }
+
+        this.isLoadingBird = true;
+
+        const bird = this.birdQueue[this.currentBirdIndex];
+
+        // 确保小鸟可见（可能之前被隐藏）
+        if (bird.sprite) {
+            bird.sprite.setVisible(true);
+        }
+
+        this.slingshot.loadBird(bird);
+        this.currentBird = bird;
+
+        // 隐藏对应的等待图标
+        if (this.waitingBirdSprites[this.currentBirdIndex]) {
+            this.waitingBirdSprites[this.currentBirdIndex].setAlpha(0.3);
+        }
+
+        console.log(`✓ 加载小鸟 ${this.currentBirdIndex + 1}/${this.birdQueue.length}: ${bird.config.name}`);
+
+        // 加载完成，解锁
+        this.isLoadingBird = false;
     }
 
     /**
@@ -242,8 +307,37 @@ export default class GameScene extends Phaser.Scene {
      * 小鸟发射处理
      */
     onBirdLaunched(bird) {
-        console.log('小鸟已发射');
-        // 可以在这里添加发射后的逻辑，比如切换到下一只小鸟
+        console.log(`✓ ${bird.config.name} 已发射，等待着陆...`);
+
+        // 监听小鸟着陆（使用 once 确保每次只响应一次）
+        this.events.once('birdLanded', this.onBirdLanded, this);
+        console.log('✓ 着陆监听器已注册');
+    }
+
+    /**
+     * 小鸟着陆处理
+     */
+    onBirdLanded(bird) {
+        console.log(`✓ GameScene 收到着陆事件：${bird.config.name}`);
+        console.log(`当前小鸟索引: ${this.currentBirdIndex}, 总数: ${this.birdQueue.length}`);
+
+        // 检查是否已经在处理着陆（防止重复）
+        if (this.isProcessingLanding) {
+            console.log('⚠ 已经在处理着陆，忽略重复事件');
+            return;
+        }
+
+        this.isProcessingLanding = true;
+
+        // 延迟 1.5 秒后加载下一只小鸟
+        this.time.delayedCall(1500, () => {
+            this.currentBirdIndex++;
+            console.log(`准备加载下一只小鸟，索引: ${this.currentBirdIndex}`);
+            this.loadNextBird();
+
+            // 重置标志，允许下一次着陆
+            this.isProcessingLanding = false;
+        });
     }
 
     /**
@@ -256,7 +350,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     /**
-     * 设置点击交互
+     * 设置点击交互（测试用：点击方块/猪造成伤害）
      */
     setupClickInteraction() {
         this.input.on('pointerdown', (pointer) => {
@@ -270,20 +364,6 @@ export default class GameScene extends Phaser.Scene {
 
                 // 检查点击是否在物体范围内
                 if (bounds.contains(pointer.x, pointer.y)) {
-                    // 检查是否是小鸟（发射）
-                    if (sprite.birdInstance) {
-                        const bird = sprite.birdInstance;
-                        if (bird.state === Bird.STATES.IDLE) {
-                            // 计算发射方向和力度（向右上方）
-                            const launchForceX = 15;
-                            const launchForceY = -12;
-                            bird.launch(launchForceX, launchForceY);
-                            this.currentBird = bird;
-                            break;
-                        }
-                        break;
-                    }
-
                     // 检查是否是方块
                     if (sprite.blockInstance) {
                         const block = sprite.blockInstance;

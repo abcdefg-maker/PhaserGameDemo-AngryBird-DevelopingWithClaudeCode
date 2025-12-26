@@ -84,6 +84,9 @@ export default class Bird {
         // 初始时设置为静态（在弹弓上）
         this.sprite.setStatic(true);
 
+        // 设置深度，确保小鸟在弹弓上层显示
+        this.sprite.setDepth(0);
+
         // 保存引用
         this.sprite.birdInstance = this;
 
@@ -109,24 +112,42 @@ export default class Bird {
     launch(velocityX, velocityY) {
         if (this.state !== Bird.STATES.IDLE) return;
 
+        console.log(`准备发射 ${this.config.name}，速度: (${velocityX.toFixed(1)}, ${velocityY.toFixed(1)})`);
+
         // 切换到飞行状态
         this.state = Bird.STATES.FLYING;
+        this.launchTime = Date.now(); // 记录发射时间
 
-        // 设置为动态物体
+        // 设置为动态物体（必须在应用速度之前）
         this.sprite.setStatic(false);
 
-        // 应用速度
-        this.sprite.setVelocity(velocityX, velocityY);
+        // 强制唤醒物理体（从休眠状态激活）
+        this.sprite.setAwake();
+
+        // 设置较高的休眠阈值，防止过早休眠
+        this.sprite.setSleepThreshold(100);
+
+        // 应用速度（使用 setVelocityX/Y 更可靠）
+        this.sprite.setVelocityX(velocityX);
+        this.sprite.setVelocityY(velocityY);
 
         // 启用旋转
         this.sprite.setAngularVelocity(0.1);
 
-        console.log(`${this.config.name}发射了！速度: (${velocityX.toFixed(1)}, ${velocityY.toFixed(1)})`);
+        console.log(`${this.config.name}发射了！当前速度: (${this.sprite.body.velocity.x.toFixed(1)}, ${this.sprite.body.velocity.y.toFixed(1)})`);
 
         // 触发发射事件
         if (this.scene.events) {
             this.scene.events.emit('birdLaunched', this);
         }
+
+        // 添加超时保护：8秒后强制着陆
+        this.scene.time.delayedCall(8000, () => {
+            if (this.state === Bird.STATES.FLYING) {
+                console.log(`${this.config.name} 超时，强制着陆`);
+                this.land();
+            }
+        });
     }
 
     /**
@@ -296,8 +317,13 @@ export default class Bird {
         const velocity = this.sprite.body.velocity;
         const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
 
-        // 速度很低时认为已着陆
-        if (speed < 0.5 && this.state === Bird.STATES.FLYING) {
+        // 提高速度阈值，让着陆更容易触发
+        // 同时检查飞行时间，如果超过3秒且速度很慢，也认为着陆
+        const timeSinceLaunch = Date.now() - this.launchTime;
+        const shouldLand = speed < 2.0 || (timeSinceLaunch > 3000 && speed < 5.0);
+
+        if (shouldLand && this.state === Bird.STATES.FLYING) {
+            console.log(`${this.config.name} 着陆检测：速度=${speed.toFixed(2)}, 飞行时间=${(timeSinceLaunch/1000).toFixed(1)}秒`);
             this.land();
         }
     }
@@ -306,12 +332,21 @@ export default class Bird {
      * 着陆
      */
     land() {
+        // 防止重复着陆
+        if (this.state === Bird.STATES.LANDED) {
+            console.log(`${this.config.name} 已经着陆，忽略重复调用`);
+            return;
+        }
+
         this.state = Bird.STATES.LANDED;
-        console.log(`${this.config.name}着陆了`);
+        console.log(`✓ ${this.config.name} 着陆了！触发着陆事件...`);
 
         // 触发着陆事件
         if (this.scene.events) {
             this.scene.events.emit('birdLanded', this);
+            console.log(`✓ 着陆事件已发送`);
+        } else {
+            console.error('⚠ 场景事件系统不可用！');
         }
 
         // 3秒后消失
