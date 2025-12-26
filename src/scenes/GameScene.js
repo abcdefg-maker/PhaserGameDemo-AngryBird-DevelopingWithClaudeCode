@@ -22,18 +22,18 @@ export default class GameScene extends Phaser.Scene {
         this.createGround(width, height);
 
         // 添加示例文字
-        this.add.text(width / 2, 100, '基础物理场景', {
+        this.add.text(width / 2, 50, '程序化图形展示', {
             fontSize: '32px',
             fill: '#000000'
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, 150, '物理引擎已启动', {
-            fontSize: '20px',
+        this.add.text(width / 2, 90, '点击屏幕添加物体', {
+            fontSize: '18px',
             fill: '#666666'
         }).setOrigin(0.5);
 
-        // 创建一些测试方块
-        this.createTestBoxes();
+        // 展示生成的纹理
+        this.displayGeneratedTextures();
 
         // 返回按钮
         this.createBackButton();
@@ -72,66 +72,87 @@ export default class GameScene extends Phaser.Scene {
     }
 
     /**
-     * 创建测试方块
+     * 展示生成的纹理
      */
-    createTestBoxes() {
-        // 创建几个可以互动的方块
-        const colors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00];
+    displayGeneratedTextures() {
+        // 展示小鸟
+        this.add.text(150, 130, '小鸟', { fontSize: '16px', fill: '#000' }).setOrigin(0.5);
+        const redBird = this.matter.add.sprite(100, 180, 'bird-red');
+        redBird.setCircle(25, { density: 0.01, restitution: 0.5 });
 
-        for (let i = 0; i < 4; i++) {
-            const x = 400 + i * 100;
-            const y = 300;
-            const size = 50;
+        const yellowBird = this.matter.add.sprite(150, 180, 'bird-yellow');
+        yellowBird.setCircle(22, { density: 0.008, restitution: 0.5 });
 
-            // 创建物理方块
-            const box = this.matter.add.rectangle(x, y, size, size, {
-                density: 0.005,
-                friction: 0.8,
-                restitution: 0.3
-            });
+        const bombBird = this.matter.add.sprite(200, 180, 'bird-bomb');
+        bombBird.setCircle(30, { density: 0.015, restitution: 0.3 });
 
-            // 创建视觉方块
-            const graphics = this.add.graphics();
-            graphics.fillStyle(colors[i], 1);
-            graphics.fillRect(-size / 2, -size / 2, size, size);
-            graphics.lineStyle(2, 0x000000, 0.5);
-            graphics.strokeRect(-size / 2, -size / 2, size, size);
+        // 展示猪
+        this.add.text(350, 130, '猪', { fontSize: '16px', fill: '#000' }).setOrigin(0.5);
+        const smallPig = this.matter.add.sprite(300, 180, 'pig-small');
+        smallPig.setCircle(20, { density: 0.01, restitution: 0.3 });
 
-            const sprite = this.add.sprite(x, y);
-            graphics.generateTexture('box_' + i, size, size);
-            sprite.setTexture('box_' + i);
+        const mediumPig = this.matter.add.sprite(360, 180, 'pig-medium');
+        mediumPig.setCircle(30, { density: 0.012, restitution: 0.3 });
 
-            // 绑定物理和视觉
-            this.matter.add.gameObject(sprite, box);
-        }
+        const largePig = this.matter.add.sprite(430, 180, 'pig-large');
+        largePig.setCircle(40, { density: 0.015, restitution: 0.3 });
 
-        // 添加提示
-        this.add.text(this.cameras.main.width / 2, 200, '点击方块可以与其互动', {
-            fontSize: '18px',
-            fill: '#666666'
-        }).setOrigin(0.5);
+        // 展示方块 - 木头
+        this.add.text(600, 130, '木头方块', { fontSize: '16px', fill: '#000' }).setOrigin(0.5);
+        const woodH = this.matter.add.sprite(560, 200, 'block-wood-h');
+        woodH.setBody({ type: 'rectangle', width: 80, height: 20 });
+        woodH.setDensity(0.003);
+
+        const woodV = this.matter.add.sprite(640, 180, 'block-wood-v');
+        woodV.setBody({ type: 'rectangle', width: 20, height: 80 });
+        woodV.setDensity(0.003);
+
+        // 展示方块 - 石头
+        this.add.text(750, 280, '石头方块', { fontSize: '16px', fill: '#000' }).setOrigin(0.5);
+        const stoneH = this.matter.add.sprite(710, 330, 'block-stone-h');
+        stoneH.setBody({ type: 'rectangle', width: 80, height: 20 });
+        stoneH.setDensity(0.008);
+
+        const stoneSquare = this.matter.add.sprite(790, 320, 'block-stone-square');
+        stoneSquare.setBody({ type: 'rectangle', width: 40, height: 40 });
+        stoneSquare.setDensity(0.008);
+
+        // 展示方块 - 玻璃
+        this.add.text(150, 280, '玻璃方块', { fontSize: '16px', fill: '#000' }).setOrigin(0.5);
+        const glassH = this.matter.add.sprite(110, 330, 'block-glass-h');
+        glassH.setBody({ type: 'rectangle', width: 80, height: 20 });
+        glassH.setDensity(0.002);
+
+        const glassV = this.matter.add.sprite(190, 310, 'block-glass-v');
+        glassV.setBody({ type: 'rectangle', width: 20, height: 80 });
+        glassV.setDensity(0.002);
+
+        // 展示弹弓（静态）
+        this.add.text(350, 280, '弹弓', { fontSize: '16px', fill: '#000' }).setOrigin(0.5);
+        this.add.sprite(350, 350, 'slingshot');
 
         // 添加点击交互
+        let clickCount = 0;
         this.input.on('pointerdown', (pointer) => {
-            // 在点击位置创建一个动态圆形
-            const circle = this.matter.add.circle(pointer.x, pointer.y, 20, {
-                density: 0.01,
-                restitution: 0.8
-            });
+            clickCount++;
+            const textures = ['bird-red', 'pig-medium', 'block-wood-square', 'block-stone-square', 'block-glass-square'];
+            const texture = textures[clickCount % textures.length];
 
-            // 添加视觉
-            const graphics = this.add.graphics();
-            graphics.fillStyle(0xff6600, 1);
-            graphics.fillCircle(0, 0, 20);
-            const circleSprite = this.add.sprite(pointer.x, pointer.y);
-            graphics.generateTexture('circle_temp', 40, 40);
-            circleSprite.setTexture('circle_temp');
+            const size = texture.includes('bird') || texture.includes('pig') ? 25 : 40;
+            const sprite = this.matter.add.sprite(pointer.x, pointer.y, texture);
 
-            this.matter.add.gameObject(circleSprite, circle);
+            if (texture.includes('bird') || texture.includes('pig')) {
+                sprite.setCircle(size, { density: 0.01, restitution: 0.6 });
+            } else {
+                sprite.setBody({ type: 'rectangle', width: 40, height: 40 });
+                sprite.setDensity(0.005);
+            }
 
-            // 3秒后销毁
-            this.time.delayedCall(3000, () => {
-                circleSprite.destroy();
+            // 5秒后销毁
+            this.time.delayedCall(5000, () => {
+                if (sprite && sprite.body) {
+                    sprite.destroy();
+                }
             });
         });
     }
