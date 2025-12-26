@@ -12,7 +12,7 @@ export default class Slingshot {
         // 弹弓位置和尺寸
         anchorX: 400,           // 锚点 X 坐标
         anchorY: 1000,           // 锚点 Y 坐标
-        poleHeight: 300,        // 柱子高度（加高到150）
+        poleHeight: 150,        // 柱子高度（加高到150）
         poleWidth: 10,          // 柱子宽度
         poleDistance: 40,       // 两柱子间距
 
@@ -21,7 +21,7 @@ export default class Slingshot {
         minPullDistance: 10,    // 最小有效拉伸距离
 
         // 力度配置
-        forceFactor: 0.35,      // 力度系数（平衡速度和弹力感）
+        forceFactor: 0.15,      // 力度系数（平衡速度和弹力感）
 
         // 轨迹预测
         trajectoryPoints: 50,   // 轨迹点数量
@@ -66,7 +66,7 @@ export default class Slingshot {
         // 创建弹弓各部分
         this.createPoles();
         this.createBands();
-        this.createPouch();
+        this.addFrontBand();
         this.createTrajectory();
 
         // 设置交互
@@ -74,40 +74,40 @@ export default class Slingshot {
     }
 
     /**
-     * 创建弹弓柱子
+     * 创建弹弓柱子（使用 Graphics 绘制，无物理碰撞）
      */
     createPoles() {
         const config = Slingshot.CONFIG;
         const poleColor = 0x8b4513; // 棕色
 
+        // 使用 Graphics 绘制柱子，避免任何物理碰撞
+        this.polesGraphics = this.scene.add.graphics();
+        this.polesGraphics.fillStyle(poleColor, 1);
+
         // 左柱子
-        this.leftPole = this.scene.add.rectangle(
-            -config.poleDistance / 2,
-            -config.poleHeight / 2,
+        this.polesGraphics.fillRect(
+            -config.poleDistance / 2 - config.poleWidth / 2,
+            -config.poleHeight,
             config.poleWidth,
-            config.poleHeight,
-            poleColor
+            config.poleHeight
         );
 
         // 右柱子
-        this.rightPole = this.scene.add.rectangle(
-            config.poleDistance / 2,
-            -config.poleHeight / 2,
+        this.polesGraphics.fillRect(
+            config.poleDistance / 2 - config.poleWidth / 2,
+            -config.poleHeight,
             config.poleWidth,
-            config.poleHeight,
-            poleColor
+            config.poleHeight
         );
 
         // 添加到容器
-        this.container.add([this.leftPole, this.rightPole]);
+        this.container.add(this.polesGraphics);
     }
 
     /**
      * 创建橡皮筋
      */
     createBands() {
-        const config = Slingshot.CONFIG;
-
         // 后橡皮筋（在小鸟后面）
         this.backBand = this.scene.add.graphics();
         this.container.add(this.backBand);
@@ -118,31 +118,57 @@ export default class Slingshot {
     }
 
     /**
-     * 创建弹弓袋（小鸟放置点）
+     * 添加前橡皮筋到容器
      */
-    createPouch() {
-        // 弹弓袋在弹弓一半高度的位置（相对于容器中心）
-        const pouchY = -Slingshot.CONFIG.poleHeight / 2;
-
-        // 弹弓袋是一个小圆圈
-        this.pouch = this.scene.add.circle(0, pouchY, 8, 0x654321);
-        this.pouch.setStrokeStyle(2, 0x000000);
-        this.container.add(this.pouch);
-
-        // 前橡皮筋在弹弓袋之后添加（保证在小鸟上层）
+    addFrontBand() {
+        // 前橡皮筋添加到容器（保证在小鸟上层）
         this.container.add(this.frontBand);
     }
 
     /**
-     * 创建轨迹预测
+     * 创建轨迹预测系统
+     *
+     * 功能说明：
+     * 这个方法创建一系列用于显示小鸟飞行轨迹的可视化点。
+     * 当玩家拖拽弹弓时，这些点会显示小鸟发射后的预测飞行路径。
+     *
+     * 实现原理：
+     * 1. 创建一个空数组 trajectoryDots 用于存储所有轨迹点
+     * 2. 根据配置中的 trajectoryPoints（默认50个点）循环创建圆形对象
+     * 3. 每个圆形代表飞行路径上的一个预测位置点
+     *
+     * 视觉属性：
+     * - 位置: (0, 0) - 初始位置，会在 updateTrajectory() 中动态更新
+     * - 半径: 3 像素 - 小圆点，不遮挡视线
+     * - 颜色: 0xffffff (白色) - 清晰可见的轨迹
+     * - 透明度: 0.6 - 半透明效果，更自然
+     * - 初始状态: 不可见 - 只在拖拽时显示
+     *
+     * 后续使用：
+     * - updateTrajectory() 会计算并更新每个点的位置，模拟物理飞行路径
+     * - hideTrajectory() 会隐藏所有轨迹点
+     * - 在发射小鸟后，轨迹会被隐藏
      */
     createTrajectory() {
+        // 初始化轨迹点数组
         this.trajectoryDots = [];
         const config = Slingshot.CONFIG;
 
+        // 循环创建指定数量的轨迹点
         for (let i = 0; i < config.trajectoryPoints; i++) {
+            // 创建圆形作为轨迹点
+            // 参数：x坐标, y坐标, 半径, 颜色(白色), 透明度
             const dot = this.scene.add.circle(0, 0, 3, 0xffffff, 0.6);
+
+            // 初始隐藏，只在拖拽弹弓时显示
             dot.setVisible(false);
+
+            // 确保轨迹点不参与物理碰撞
+            if (dot.body) {
+                dot.body.enable = false;
+            }
+
+            // 添加到轨迹点数组，用于后续更新和管理
             this.trajectoryDots.push(dot);
         }
     }
@@ -161,6 +187,11 @@ export default class Slingshot {
         );
         this.interactionZone.setInteractive({ useHandCursor: true });
 
+        // 确保交互区域不参与物理碰撞
+        if (this.interactionZone.body) {
+            this.interactionZone.body.enable = false;
+        }
+
         // 拖拽事件
         this.interactionZone.on('pointerdown', this.onDragStart, this);
         this.scene.input.on('pointermove', this.onDragMove, this);
@@ -176,15 +207,15 @@ export default class Slingshot {
 
         this.currentBird = bird;
 
-        // 将小鸟移动到弹弓一半高度的位置
+        // 将小鸟移动到弹弓柱子最高点的中间位置
         if (bird.sprite) {
-            const birdY = this.y - Slingshot.CONFIG.poleHeight / 2;
+            const birdY = this.y - Slingshot.CONFIG.poleHeight;
             bird.sprite.setPosition(this.x, birdY);
             bird.sprite.setStatic(true);
         }
 
         this.state = Slingshot.STATES.IDLE;
-        console.log('小鸟已加载到弹弓（一半高度）');
+        console.log('小鸟已加载到弹弓（柱子最高点）');
         return true;
     }
 
@@ -270,7 +301,7 @@ export default class Slingshot {
         // 计算发射速度（方向与拉伸方向相反）
         const forceFactor = Slingshot.CONFIG.forceFactor;
         const velocityX = -(offsetX * forceFactor);
-        const velocityY = -(offsetY * forceFactor);
+        const velocityY = (offsetY * forceFactor);
 
         // 发射小鸟
         if (this.currentBird) {
@@ -320,9 +351,6 @@ export default class Slingshot {
         this.frontBand.moveTo(rightX, rightY);
         this.frontBand.lineTo(birdLocalX, birdLocalY);
         this.frontBand.strokePath();
-
-        // 更新弹弓袋位置
-        this.pouch.setPosition(birdLocalX, birdLocalY);
     }
 
     /**
@@ -388,15 +416,11 @@ export default class Slingshot {
     reset() {
         this.state = Slingshot.STATES.IDLE;
         this.dragCurrentX = this.x;
-        this.dragCurrentY = this.y - Slingshot.CONFIG.poleHeight / 2;
+        this.dragCurrentY = this.y - Slingshot.CONFIG.poleHeight;
 
         // 重置橡皮筋
         this.backBand.clear();
         this.frontBand.clear();
-
-        // 重置弹弓袋位置到一半高度（相对于容器）
-        const pouchY = -Slingshot.CONFIG.poleHeight / 2;
-        this.pouch.setPosition(0, pouchY);
 
         // 隐藏轨迹
         this.hideTrajectory();

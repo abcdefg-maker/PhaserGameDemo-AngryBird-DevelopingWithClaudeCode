@@ -245,7 +245,10 @@ export default class Pig {
      * 更新（每帧调用）
      */
     update() {
-        // 可以在这里添加每帧更新的逻辑
-        // 比如：AI 行为、检测是否掉出地图等
+        // 检测是否掉出地图
+        if (!this.isDead && this.sprite && this.sprite.body && this.sprite.y > 1000) {
+            console.log(`${this.config.name}掉出地图，自动清理`);
+            this.die();
+        }
     }
 }

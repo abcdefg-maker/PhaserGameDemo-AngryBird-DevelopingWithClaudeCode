@@ -8,6 +8,15 @@ import Slingshot from '../objects/Slingshot.js';
  * GameScene - 游戏场景（弹弓系统测试）
  */
 export default class GameScene extends Phaser.Scene {
+    /**
+     * 碰撞伤害配置
+     */
+    static DAMAGE_CONFIG = {
+        minVelocity: 2,         // 最小触发伤害的速度
+        damageMultiplier: 8,    // 伤害倍率（调整整体伤害大小）
+        debugMode: false        // 调试模式（显示碰撞伤害值）
+    };
+
     constructor() {
         super({ key: 'GameScene' });
     }
@@ -45,8 +54,11 @@ export default class GameScene extends Phaser.Scene {
         // 返回按钮
         this.createBackButton();
 
-        // 添加点击交互
+        // 添加点击交互（调试用）
         this.setupClickInteraction();
+
+        // 设置碰撞监听（新增）
+        this.setupCollisionListener();
 
         // 启用调试模式查看物理边界
         this.matter.world.drawDebug = false;
@@ -154,9 +166,9 @@ export default class GameScene extends Phaser.Scene {
         // 创建弹弓
         this.slingshot = new Slingshot(this, slingshotConfig.x, slingshotConfig.y);
 
-        // 小鸟初始位置：弹弓一半高度
+        // 小鸟初始位置：弹弓柱子最高点
         const slingshotX = slingshotConfig.x;
-        const slingshotY = slingshotConfig.y - slingshotConfig.poleHeight / 2;
+        const slingshotY = slingshotConfig.y - slingshotConfig.poleHeight;
         this.birdQueue = [
             new Bird(this, slingshotX, slingshotY, 'red'),      // 红鸟
             new Bird(this, slingshotX, slingshotY, 'yellow'),   // 黄鸟
@@ -350,6 +362,155 @@ export default class GameScene extends Phaser.Scene {
     }
 
     /**
+     * 设置碰撞监听器
+     */
+    setupCollisionListener() {
+        // 监听所有碰撞事件
+        this.matter.world.on('collisionstart', (event) => {
+            const pairs = event.pairs;
+
+            for (let i = 0; i < pairs.length; i++) {
+                const { bodyA, bodyB } = pairs[i];
+
+                // 获取碰撞的游戏对象
+                const objectA = bodyA.gameObject;
+                const objectB = bodyB.gameObject;
+
+                if (!objectA || !objectB) continue;
+
+                // 处理碰撞伤害
+                this.handleCollision(bodyA, bodyB, objectA, objectB);
+            }
+        });
+
+        console.log('✓ 碰撞监听器已启动');
+    }
+
+    /**
+     * 处理碰撞事件
+     */
+    handleCollision(bodyA, bodyB, objectA, objectB) {
+        // 检测是否有小鸟参与碰撞
+        const birdA = objectA.birdInstance;
+        const birdB = objectB.birdInstance;
+        const blockA = objectA.blockInstance;
+        const blockB = objectB.blockInstance;
+        const pigA = objectA.pigInstance;
+        const pigB = objectB.pigInstance;
+
+        // 如果有小鸟参与碰撞，输出碰撞信息
+        if (birdA) {
+            this.logBirdCollision(birdA, objectB, blockB, pigB, bodyA, bodyB);
+        }
+        if (birdB) {
+            this.logBirdCollision(birdB, objectA, blockA, pigA, bodyB, bodyA);
+        }
+
+        // 计算碰撞速度（取两个物体的相对速度）
+        const velocityA = Math.sqrt(bodyA.velocity.x ** 2 + bodyA.velocity.y ** 2);
+        const velocityB = Math.sqrt(bodyB.velocity.x ** 2 + bodyB.velocity.y ** 2);
+        const relativeVelocity = Math.abs(velocityA - velocityB);
+
+        // 如果速度太低，不造成伤害
+        if (relativeVelocity < GameScene.DAMAGE_CONFIG.minVelocity) {
+            return;
+        }
+
+        // 获取质量（用于伤害计算）
+        const massA = bodyA.mass;
+        const massB = bodyB.mass;
+
+        // 处理 A 对 B 的伤害
+        this.applyCollisionDamage(objectB, velocityA, massA, bodyA.position);
+
+        // 处理 B 对 A 的伤害
+        this.applyCollisionDamage(objectA, velocityB, massB, bodyB.position);
+    }
+
+    /**
+     * 输出小鸟碰撞信息
+     */
+    logBirdCollision(bird, targetObject, targetBlock, targetPig, birdBody, targetBody) {
+        // 计算碰撞速度
+        const velocity = Math.sqrt(birdBody.velocity.x ** 2 + birdBody.velocity.y ** 2);
+
+        // 判断碰撞对象类型
+        let targetType = '未知对象';
+        let targetInfo = '';
+
+        if (targetBlock) {
+            targetType = '方块';
+            targetInfo = `${targetBlock.config.name} (${targetBlock.shape})`;
+        } else if (targetPig) {
+            targetType = '猪';
+            targetInfo = `${targetPig.config.name}`;
+        } else if (targetBody.label === 'ground') {
+            targetType = '地面';
+            targetInfo = '地面';
+        } else {
+            // 其他物体 - 显示详细信息以便调试
+            targetType = targetBody.label || targetObject.type || '其他物体';
+            targetInfo = `${targetType} (可能是弹弓组件或其他装饰对象)`;
+
+            // 警告：小鸟不应该碰撞到这些对象
+            console.warn(`⚠️ 小鸟碰撞到了不应该有物理体的对象: ${targetType}`);
+        }
+
+        // 输出碰撞信息
+        console.log(`🐦 ${bird.config.name} 碰撞 ${targetType}: ${targetInfo} | 速度: ${velocity.toFixed(2)} | 位置: (${Math.round(birdBody.position.x)}, ${Math.round(birdBody.position.y)})`);
+    }
+
+    /**
+     * 应用碰撞伤害
+     */
+    applyCollisionDamage(targetObject, velocity, attackerMass, collisionPoint) {
+        // 检查目标是否可以受伤
+        const blockInstance = targetObject.blockInstance;
+        const pigInstance = targetObject.pigInstance;
+
+        if (!blockInstance && !pigInstance) {
+            return; // 不是可受伤对象
+        }
+
+        // 计算伤害：伤害 = 速度 × √质量 × 伤害倍率
+        const damage = this.calculateDamage(velocity, attackerMass);
+
+        if (damage <= 0) return;
+
+        // 应用伤害
+        if (blockInstance) {
+            blockInstance.takeDamage(damage);
+            this.updateStats();
+        } else if (pigInstance) {
+            pigInstance.takeDamage(damage);
+            this.updateStats();
+        }
+
+        // 调试模式：显示伤害值
+        if (GameScene.DAMAGE_CONFIG.debugMode) {
+            this.showDamageText(collisionPoint.x, collisionPoint.y, Math.round(damage));
+        }
+    }
+
+    /**
+     * 计算碰撞伤害
+     * @param {number} velocity - 碰撞速度
+     * @param {number} mass - 攻击者质量
+     * @returns {number} - 伤害值
+     */
+    calculateDamage(velocity, mass) {
+        // 速度低于阈值，不造成伤害
+        if (velocity < GameScene.DAMAGE_CONFIG.minVelocity) {
+            return 0;
+        }
+
+        // 基础伤害 = 速度 × √质量 × 伤害倍率
+        const damage = velocity * Math.sqrt(mass) * GameScene.DAMAGE_CONFIG.damageMultiplier;
+
+        return damage;
+    }
+
+    /**
      * 设置点击交互（测试用：点击方块/猪造成伤害）
      */
     setupClickInteraction() {
@@ -465,6 +626,16 @@ export default class GameScene extends Phaser.Scene {
         // 更新所有小鸟
         if (this.birds) {
             this.birds.forEach(bird => bird.update());
+        }
+
+        // 更新所有方块（检测掉出地图）
+        if (this.blocks) {
+            this.blocks.forEach(block => block.update());
+        }
+
+        // 更新所有猪（检测掉出地图）
+        if (this.pigs) {
+            this.pigs.forEach(pig => pig.update());
         }
     }
 }
