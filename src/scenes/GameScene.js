@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
 import Block from '../objects/Block.js';
 import Pig from '../objects/Pig.js';
+import Bird from '../objects/Bird.js';
 
 /**
- * GameScene - 游戏场景（方块和猪系统测试）
+ * GameScene - 游戏场景（方块、猪和小鸟系统测试）
  */
 export default class GameScene extends Phaser.Scene {
     constructor() {
@@ -24,13 +25,13 @@ export default class GameScene extends Phaser.Scene {
         this.createGround(width, height);
 
         // 标题
-        this.add.text(width / 2, 30, '方块 & 猪系统测试', {
+        this.add.text(width / 2, 30, '小鸟、方块 & 猪系统测试', {
             fontSize: '32px',
             fill: '#000000'
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, 70, '点击方块或猪造成伤害', {
-            fontSize: '18px',
+        this.add.text(width / 2, 70, '点击小鸟发射 | 空格使用能力 | 点击方块/猪造成伤害', {
+            fontSize: '16px',
             fill: '#666666'
         }).setOrigin(0.5);
 
@@ -136,10 +137,65 @@ export default class GameScene extends Phaser.Scene {
             padding: { x: 10, y: 5 }
         }).setOrigin(1, 0);
 
-        // 监听猪死亡事件
+        // 创建小鸟
+        this.createBirds();
+
+        // 监听事件
         this.events.on('pigDied', this.onPigDied, this);
+        this.events.on('birdLaunched', this.onBirdLaunched, this);
+
+        // 监听键盘
+        this.input.keyboard.on('keydown-SPACE', this.onSpaceKey, this);
 
         this.updateStats();
+    }
+
+    /**
+     * 创建小鸟
+     */
+    createBirds() {
+        // 在左侧创建三只小鸟
+        this.redBird = new Bird(this, 100, 450, 'red');
+        this.yellowBird = new Bird(this, 150, 450, 'yellow');
+        this.bombBird = new Bird(this, 200, 450, 'bomb');
+
+        // 当前激活的小鸟
+        this.currentBird = this.redBird;
+
+        // 提示文字
+        this.add.text(150, 520, '点击小鸟发射 →', {
+            fontSize: '14px',
+            fill: '#ff0000'
+        }).setOrigin(0.5);
+
+        // 使小鸟精灵可交互（添加交互区域）
+        [this.redBird, this.yellowBird, this.bombBird].forEach(bird => {
+            if (bird.sprite) {
+                bird.sprite.setInteractive();
+                bird.sprite.on('pointerdown', () => {
+                    if (bird.state === Bird.STATES.IDLE) {
+                        console.log('直接点击小鸟，准备发射');
+                        const launchForceX = 15;
+                        const launchForceY = -12;
+                        bird.launch(launchForceX, launchForceY);
+                        this.currentBird = bird;
+                    }
+                });
+
+                // 悬停效果
+                bird.sprite.on('pointerover', () => {
+                    if (bird.state === Bird.STATES.IDLE) {
+                        bird.sprite.setTint(0xffff00);
+                    }
+                });
+
+                bird.sprite.on('pointerout', () => {
+                    if (bird.state === Bird.STATES.IDLE) {
+                        bird.sprite.clearTint();
+                    }
+                });
+            }
+        });
     }
 
     /**
@@ -158,9 +214,13 @@ export default class GameScene extends Phaser.Scene {
         const mediumPigCount = this.pigs ? this.pigs.filter(p => p.size === 'medium').length : 0;
         const largePigCount = this.pigs ? this.pigs.filter(p => p.size === 'large').length : 0;
 
+        // 小鸟统计
+        const birdCount = this.birds ? this.birds.filter(b => b.isActive()).length : 0;
+
         this.statsText.setText([
             `方块: ${blockCount} (木${woodCount} 石${stoneCount} 玻${glassCount})`,
-            `猪: ${pigCount} (小${smallPigCount} 中${mediumPigCount} 大${largePigCount})`
+            `猪: ${pigCount} (小${smallPigCount} 中${mediumPigCount} 大${largePigCount})`,
+            `小鸟: ${birdCount}`
         ].join('\n'));
 
         // 更新分数
@@ -179,6 +239,23 @@ export default class GameScene extends Phaser.Scene {
     }
 
     /**
+     * 小鸟发射处理
+     */
+    onBirdLaunched(bird) {
+        console.log('小鸟已发射');
+        // 可以在这里添加发射后的逻辑，比如切换到下一只小鸟
+    }
+
+    /**
+     * 空格键处理
+     */
+    onSpaceKey() {
+        if (this.currentBird && this.currentBird.isFlying()) {
+            this.currentBird.useAbility();
+        }
+    }
+
+    /**
      * 设置点击交互
      */
     setupClickInteraction() {
@@ -193,6 +270,20 @@ export default class GameScene extends Phaser.Scene {
 
                 // 检查点击是否在物体范围内
                 if (bounds.contains(pointer.x, pointer.y)) {
+                    // 检查是否是小鸟（发射）
+                    if (sprite.birdInstance) {
+                        const bird = sprite.birdInstance;
+                        if (bird.state === Bird.STATES.IDLE) {
+                            // 计算发射方向和力度（向右上方）
+                            const launchForceX = 15;
+                            const launchForceY = -12;
+                            bird.launch(launchForceX, launchForceY);
+                            this.currentBird = bird;
+                            break;
+                        }
+                        break;
+                    }
+
                     // 检查是否是方块
                     if (sprite.blockInstance) {
                         const block = sprite.blockInstance;
@@ -291,6 +382,9 @@ export default class GameScene extends Phaser.Scene {
     }
 
     update() {
-        // 可以在这里添加更新逻辑
+        // 更新所有小鸟
+        if (this.birds) {
+            this.birds.forEach(bird => bird.update());
+        }
     }
 }
